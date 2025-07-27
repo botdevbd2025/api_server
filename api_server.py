@@ -9,10 +9,15 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app, origins=[
-    "https://dancing-lollipop-fc680a.netlify.app/",  # UPDATE THIS
+    "https://testverify.netlify.app",  # Your frontend domain
+    "https://dancing-lollipop-fc680a.netlify.app",  # New frontend domain
     "https://*.netlify.app",
     "https://*.vercel.app",
-    "https://*.railway.app"
+    "https://*.railway.app",
+    "http://localhost:3000",  # Local development
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001"
 ])
 
 # UPDATE THIS URL to your bot server webhook
