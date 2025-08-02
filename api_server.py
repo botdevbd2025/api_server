@@ -3,7 +3,7 @@ from flask_cors import CORS
 import requests
 import os
 from dotenv import load_dotenv
-from verifier_js import has_nft  # Changed to use JavaScript-based verifier
+from verifier_python import has_nft  # Changed to use Python-based verifier
 
 load_dotenv()
 
@@ -61,8 +61,8 @@ def verify_nft():
             print("❌ Missing wallet_address or tg_id")
             return jsonify({"error": "Missing wallet_address or tg_id"}), 400
         
-        # Check NFT ownership using JavaScript-based verifier
-        print("🔍 Starting NFT verification (JavaScript approach)...")
+        # Check NFT ownership using Python-based verifier
+        print("🔍 Starting NFT verification (Python approach)...")
         has_required_nft, nft_count = has_nft(wallet_address)  # Updated to get nft_count
         print(f"✅ Verification result: {has_required_nft}")
         print(f"📊 NFT Count: {nft_count}")  # Added print for NFT count
@@ -92,7 +92,7 @@ def verify_nft():
             "has_nft": has_required_nft,
             "nft_count": nft_count,  # Added nft_count to API response
             "wallet_address": wallet_address,
-            "message": "NFT verification completed (JavaScript approach)"
+            "message": "NFT verification completed (Python approach)"
         })
         
         # Add CORS headers for all origins
@@ -175,5 +175,5 @@ def handle_options(wallet_address=None):
     return response
 
 if __name__ == '__main__':
-    print("🚀 Starting API Server with JavaScript-based NFT verification...")
+    print("🚀 Starting API Server with Python-based NFT verification...")
     app.run(host='0.0.0.0', port=5001, debug=True) 
