@@ -1,0 +1,23 @@
+{
+  "name": "api-server-nft-verification",
+  "version": "1.0.0",
+  "description": "API Server for NFT Verification using JavaScript",
+  "main": "test_js.js",
+  "scripts": {
+    "test": "node test_js.js",
+    "start": "python api_server.py"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.2",
+    "@metaplex-foundation/js": "^0.20.1"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "solana",
+    "nft",
+    "verification",
+    "metaplex"
+  ],
+  "author": "Meta Betties",
+  "license": "MIT"
+} 

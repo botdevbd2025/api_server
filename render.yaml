@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: meta-betties-api-server
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      npm install
+    startCommand: python api_server.py
+    envVars:
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: COLLECTION_ID
+        sync: false
+      - key: WEBHOOK_URL
+        value: https://bot-server-kem4.onrender.com/verify_callback
+    healthCheckPath: /api/config
+    autoDeploy: true 
