@@ -121,9 +121,39 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
                 collection = item.get("grouping", [{}])[0].get("group_value", "Unknown") if item.get("grouping") else "Unknown"
                 print(f"  Item {i+1}: token_standard = {token_standard}, interface = {interface}, collection = {collection}")
             
-            # Filter for non-fungible tokens
-            nfts = [item for item in all_items 
-                   if item.get("content", {}).get("metadata", {}).get("token_standard") in ["NonFungible", "non-fungible", "NONFUNGIBLE"]]
+            # Improved NFT filtering - check multiple criteria
+            nfts = []
+            for item in all_items:
+                # Check if it's an NFT based on multiple criteria
+                is_nft = False
+                
+                # Criterion 1: Token standard
+                token_standard = item.get("content", {}).get("metadata", {}).get("token_standard", "")
+                if token_standard in ["NonFungible", "non-fungible", "NONFUNGIBLE"]:
+                    is_nft = True
+                
+                # Criterion 2: Interface type
+                interface = item.get("interface", "")
+                if interface in ["V1_NFT", "MplCoreAsset"]:
+                    is_nft = True
+                
+                # Criterion 3: Has files or name/symbol
+                content = item.get("content", {})
+                files = content.get("files", [])
+                metadata = content.get("metadata", {})
+                name = metadata.get("name", "")
+                symbol = metadata.get("symbol", "")
+                
+                if files or name or symbol:
+                    is_nft = True
+                
+                # Criterion 4: Check for NFT keywords in description
+                description = metadata.get("description", "")
+                if any(keyword in description.lower() for keyword in ["nft", "non-fungible", "token"]):
+                    is_nft = True
+                
+                if is_nft:
+                    nfts.append(item)
             
             # If collection_id is specified, filter by collection
             if collection_id:
