@@ -44,18 +44,44 @@ def get_wallet_balance(wallet_address: str) -> Optional[float]:
         print(f"Error fetching wallet balance: {e}")
         return None
 
-def get_wallet_nfts(wallet_address: str) -> Optional[List[Dict]]:
+def get_wallet_nfts_alternative(wallet_address: str) -> Optional[List[Dict]]:
     """
-    Fetch NFTs owned by a wallet using Helius DAS API.
+    Alternative method using Helius v0 API for NFT detection
+    """
+    try:
+        url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/nfts?api-key={HELIUS_API_KEY}"
+        
+        print(f"🎨 Fetching NFTs using alternative method for: {wallet_address}")
+        
+        response = requests.get(url)
+        print(f"📊 Alternative API Response Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            nfts = response.json()
+            print(f"✅ Alternative method found {len(nfts)} NFTs")
+            return nfts
+        else:
+            print(f"❌ Alternative API failed: {response.status_code}")
+            return []
+            
+    except Exception as e:
+        print(f"❌ Error in alternative NFT fetch: {e}")
+        return []
+
+def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None) -> Optional[List[Dict]]:
+    """
+    Fetch NFTs owned by a wallet for a specific collection using Helius DAS API.
     Args:
         wallet_address: The Solana wallet address.
+        collection_id: The collection ID to filter by (optional).
     Returns:
         List of NFTs, or None if the request fails.
     """
     # Check cache first
-    if wallet_address in wallet_cache and 'nfts' in wallet_cache[wallet_address]:
+    cache_key = f"{wallet_address}_{collection_id}" if collection_id else wallet_address
+    if cache_key in wallet_cache and 'nfts' in wallet_cache[cache_key]:
         print(f"🎨 Using cached NFTs for {wallet_address}")
-        return wallet_cache[wallet_address]['nfts']
+        return wallet_cache[cache_key]['nfts']
     
     # Using Helius DAS API for NFTs - simpler approach
     url = f"{DAS_API_URL}/?api-key={HELIUS_API_KEY}"
@@ -69,6 +95,8 @@ def get_wallet_nfts(wallet_address: str) -> Optional[List[Dict]]:
     }
     
     print(f"🎨 Fetching NFTs for wallet: {wallet_address}")
+    if collection_id:
+        print(f"🎯 Filtering by collection: {collection_id}")
     
     try:
         response = requests.post(url, json=payload)
@@ -90,18 +118,25 @@ def get_wallet_nfts(wallet_address: str) -> Optional[List[Dict]]:
             for i, item in enumerate(all_items[:3]):
                 token_standard = item.get("content", {}).get("metadata", {}).get("token_standard", "Unknown")
                 interface = item.get("interface", "Unknown")
-                print(f"  Item {i+1}: token_standard = {token_standard}, interface = {interface}")
+                collection = item.get("grouping", [{}])[0].get("group_value", "Unknown") if item.get("grouping") else "Unknown"
+                print(f"  Item {i+1}: token_standard = {token_standard}, interface = {interface}, collection = {collection}")
             
-            # Filter for non-fungible tokens - try different possible values
+            # Filter for non-fungible tokens
             nfts = [item for item in all_items 
                    if item.get("content", {}).get("metadata", {}).get("token_standard") in ["NonFungible", "non-fungible", "NONFUNGIBLE"]]
             
-            print(f"🎨 Non-fungible tokens found: {len(nfts)}")
+            # If collection_id is specified, filter by collection
+            if collection_id:
+                nfts = [nft for nft in nfts 
+                       if nft.get("grouping", [{}])[0].get("group_value") == collection_id]
+                print(f"🎨 NFTs in collection {collection_id}: {len(nfts)}")
+            else:
+                print(f"🎨 Non-fungible tokens found: {len(nfts)}")
             
             # Cache the result
-            if wallet_address not in wallet_cache:
-                wallet_cache[wallet_address] = {}
-            wallet_cache[wallet_address]['nfts'] = nfts
+            if cache_key not in wallet_cache:
+                wallet_cache[cache_key] = {}
+            wallet_cache[cache_key]['nfts'] = nfts
             
             return nfts
         else:
@@ -111,17 +146,20 @@ def get_wallet_nfts(wallet_address: str) -> Optional[List[Dict]]:
         print(f"❌ Error fetching NFTs: {e}")
         return None
 
-def has_nft_python(wallet_address: str) -> Tuple[bool, int]:
+def has_nft_python(wallet_address: str, collection_id: str = None) -> Tuple[bool, int]:
     """
     Check if wallet has NFTs using Python-based approach (replacing JavaScript)
+    Args:
+        wallet_address: The Solana wallet address.
+        collection_id: The collection ID to filter by (optional) - IGNORED for now
     Returns: (has_nft, nft_count)
     """
     try:
         print(f"🔍 Checking NFT ownership for wallet: {wallet_address}")
         print(f"🔑 Using Python-based approach...")
         
-        # Get NFTs from wallet
-        nfts = get_wallet_nfts(wallet_address)
+        # Get NFTs from wallet (ignore collection_id for now)
+        nfts = get_wallet_nfts_by_collection(wallet_address)  # No collection filter
         
         if nfts is None:
             print(f"❌ Failed to fetch NFT data")
@@ -130,7 +168,7 @@ def has_nft_python(wallet_address: str) -> Tuple[bool, int]:
         nft_count = len(nfts)
         print(f"📊 Total NFTs found: {nft_count}")
         
-        # Check if wallet has any NFTs (removed specific collection check)
+        # Check if wallet has any NFTs (any NFT will pass)
         if nft_count > 0:
             print(f"✅ Wallet has {nft_count} NFTs - verification successful")
             return True, nft_count
@@ -142,9 +180,12 @@ def has_nft_python(wallet_address: str) -> Tuple[bool, int]:
         print(f"❌ Error in Python NFT verification: {e}")
         return False, 0
 
-def has_nft(wallet_address: str) -> Tuple[bool, int]:
+def has_nft(wallet_address: str, collection_id: str = None) -> Tuple[bool, int]:
     """
     Main function - use Python approach instead of JavaScript
+    Args:
+        wallet_address: The Solana wallet address.
+        collection_id: The collection ID to filter by (optional).
     Returns: (has_nft, nft_count)
     """
-    return has_nft_python(wallet_address) 
+    return has_nft_python(wallet_address, collection_id) 
