@@ -52,6 +52,7 @@ def verify_nft():
         data = request.json
         wallet_address = data.get('wallet_address')
         tg_id = data.get('tg_id')
+        # collection_id = data.get('collection_id')  # Ignored for now
         
         print(f"🔍 Verification request received:")
         print(f"  👤 Telegram ID: {tg_id}")
@@ -61,18 +62,18 @@ def verify_nft():
             print("❌ Missing wallet_address or tg_id")
             return jsonify({"error": "Missing wallet_address or tg_id"}), 400
         
-        # Check NFT ownership using Python-based verifier
+        # Check NFT ownership using Python-based verifier (any NFT will pass)
         print("🔍 Starting NFT verification (Python approach)...")
-        has_required_nft, nft_count = has_nft(wallet_address)  # Updated to get nft_count
+        has_required_nft, nft_count = has_nft(wallet_address)  # No collection filter
         print(f"✅ Verification result: {has_required_nft}")
-        print(f"📊 NFT Count: {nft_count}")  # Added print for NFT count
+        print(f"📊 NFT Count: {nft_count}")
         
         # Send result to bot's webhook
         webhook_data = {
             "tg_id": tg_id,
             "has_nft": has_required_nft,
             "username": f"user_{tg_id}",
-            "nft_count": nft_count  # Added nft_count to webhook data
+            "nft_count": nft_count
         }
         
         print(f"📤 Sending webhook to: {WEBHOOK_URL}")
@@ -90,9 +91,9 @@ def verify_nft():
         
         response = jsonify({
             "has_nft": has_required_nft,
-            "nft_count": nft_count,  # Added nft_count to API response
+            "nft_count": nft_count,
             "wallet_address": wallet_address,
-            "message": "NFT verification completed (Python approach)"
+            "message": "NFT verification completed (any NFT will pass)"
         })
         
         # Add CORS headers for all origins
