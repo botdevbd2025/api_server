@@ -105,7 +105,8 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
             for i, item in enumerate(all_items[:3]):
                 token_standard = item.get("content", {}).get("metadata", {}).get("token_standard", "Unknown")
                 interface = item.get("interface", "Unknown")
-                collection = item.get("grouping", [{}])[0].get("group_value", "Unknown") if item.get("grouping") else "Unknown"
+                grouping = item.get("grouping", [])
+                collection = grouping[0].get("group_value", "Unknown") if grouping and len(grouping) > 0 else "Unknown"
                 print(f"  Item {i+1}: token_standard = {token_standard}, interface = {interface}, collection = {collection}")
             
             # Improved NFT filtering - check multiple criteria
@@ -144,8 +145,14 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
             
             # If collection_id is specified, filter by collection
             if collection_id:
-                nfts = [nft for nft in nfts 
-                       if nft.get("grouping", [{}])[0].get("group_value") == collection_id]
+                filtered_nfts = []
+                for nft in nfts:
+                    grouping = nft.get("grouping", [])
+                    if grouping and len(grouping) > 0:
+                        nft_collection = grouping[0].get("group_value")
+                        if nft_collection == collection_id:
+                            filtered_nfts.append(nft)
+                nfts = filtered_nfts
                 print(f"🎨 NFTs in collection {collection_id}: {len(nfts)}")
             else:
                 print(f"🎨 Non-fungible tokens found: {len(nfts)}")
@@ -163,15 +170,18 @@ def has_nft_python(wallet_address: str, collection_id: str = None) -> Tuple[bool
     Check if wallet has NFTs using Python-based approach (replacing JavaScript)
     Args:
         wallet_address: The Solana wallet address.
-        collection_id: The collection ID to filter by (optional) - IGNORED for now
+        collection_id: The collection ID to filter by (optional).
     Returns: (has_nft, nft_count)
     """
     try:
         print(f"🔍 Checking NFT ownership for wallet: {wallet_address}")
-        print(f"🔑 Using Python-based approach...")
+        if collection_id:
+            print(f"🎯 Checking for collection: {collection_id}")
+        else:
+            print(f"🔑 Checking for any NFT (no collection filter)")
         
-        # Get NFTs from wallet (ignore collection_id for now)
-        nfts = get_wallet_nfts_by_collection(wallet_address)  # No collection filter
+        # Get NFTs from wallet (with collection filter if specified)
+        nfts = get_wallet_nfts_by_collection(wallet_address, collection_id)
         
         if nfts is None:
             print(f"❌ Failed to fetch NFT data")
@@ -180,12 +190,18 @@ def has_nft_python(wallet_address: str, collection_id: str = None) -> Tuple[bool
         nft_count = len(nfts)
         print(f"📊 Total NFTs found: {nft_count}")
         
-        # Check if wallet has any NFTs (any NFT will pass)
+        # Check if wallet has any NFTs
         if nft_count > 0:
-            print(f"✅ Wallet has {nft_count} NFTs - verification successful")
+            if collection_id:
+                print(f"✅ Wallet has {nft_count} NFTs in collection {collection_id} - verification successful")
+            else:
+                print(f"✅ Wallet has {nft_count} NFTs - verification successful")
             return True, nft_count
         else:
-            print(f"❌ Wallet has no NFTs - verification failed")
+            if collection_id:
+                print(f"❌ Wallet has no NFTs in collection {collection_id} - verification failed")
+            else:
+                print(f"❌ Wallet has no NFTs - verification failed")
             return False, 0
             
     except Exception as e:
