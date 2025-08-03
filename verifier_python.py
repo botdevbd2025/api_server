@@ -11,8 +11,8 @@ HELIUS_API_URL = "https://api.helius.xyz/v0"  # Keep v0 for balance
 DAS_API_URL = "https://mainnet.helius-rpc.com"  # DAS API endpoint
 LAMPORTS_PER_SOL = 1_000_000_000  # Conversion factor for SOL (1 SOL = 1e9 lamports)
 
-# Cache for API responses to avoid repeated calls
-wallet_cache = {}
+# Cache disabled - allow multiple verifications
+# wallet_cache = {}
 
 def get_wallet_balance(wallet_address: str) -> Optional[float]:
     """
@@ -22,22 +22,13 @@ def get_wallet_balance(wallet_address: str) -> Optional[float]:
     Returns:
         SOL balance as a float, or None if the request fails.
     """
-    # Check cache first
-    if wallet_address in wallet_cache and 'balance' in wallet_cache[wallet_address]:
-        print(f"💰 Using cached SOL balance for {wallet_address}")
-        return wallet_cache[wallet_address]['balance']
-    
+    # No cache - always fetch fresh data
     url = f"{HELIUS_API_URL}/addresses/{wallet_address}/balances?api-key={HELIUS_API_KEY}"
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
         balance = data.get("nativeBalance", 0) / LAMPORTS_PER_SOL
-        
-        # Cache the result
-        if wallet_address not in wallet_cache:
-            wallet_cache[wallet_address] = {}
-        wallet_cache[wallet_address]['balance'] = balance
         
         return balance
     except requests.RequestException as e:
@@ -77,11 +68,7 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
     Returns:
         List of NFTs, or None if the request fails.
     """
-    # Check cache first
-    cache_key = f"{wallet_address}_{collection_id}" if collection_id else wallet_address
-    if cache_key in wallet_cache and 'nfts' in wallet_cache[cache_key]:
-        print(f"🎨 Using cached NFTs for {wallet_address}")
-        return wallet_cache[cache_key]['nfts']
+    # No cache - always fetch fresh data
     
     # Using Helius DAS API for NFTs - simpler approach
     url = f"{DAS_API_URL}/?api-key={HELIUS_API_KEY}"
@@ -94,7 +81,7 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
         }
     }
     
-    print(f"🎨 Fetching NFTs for wallet: {wallet_address}")
+    print(f"🎨 Fetching fresh NFTs for wallet: {wallet_address}")
     if collection_id:
         print(f"🎯 Filtering by collection: {collection_id}")
     
@@ -162,11 +149,6 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
                 print(f"🎨 NFTs in collection {collection_id}: {len(nfts)}")
             else:
                 print(f"🎨 Non-fungible tokens found: {len(nfts)}")
-            
-            # Cache the result
-            if cache_key not in wallet_cache:
-                wallet_cache[cache_key] = {}
-            wallet_cache[cache_key]['nfts'] = nfts
             
             return nfts
         else:
