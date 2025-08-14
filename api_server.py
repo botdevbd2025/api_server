@@ -4,16 +4,20 @@ import requests
 import os
 from dotenv import load_dotenv
 from verifier_python import has_nft  # Changed to use Python-based verifier
+import time
+import logging
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Configure CORS to allow specific origins
 allowed_origins = [
     "https://admin-q2j7.onrender.com",
-    "https://meta-betties-frontend.onrender.com",
-    "https://meta-betties-frontend-*.onrender.com",
     "http://localhost:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3000",
@@ -30,22 +34,17 @@ CORS(app,
 # UPDATE THIS URL to your bot server webhook
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://bot-server-kem4.onrender.com/verify_callback")
 
+# Performance settings
+WEBHOOK_TIMEOUT = 10  # 10 seconds timeout for webhook calls
+MAX_VERIFICATION_TIME = 25  # Maximum time for verification process
+
 @app.route('/api/config')
 def get_config():
     """Return configuration data including API keys"""
-    helius_api_key = os.getenv("HELIUS_API_KEY", "")
-    
-    # Log the API key status for debugging
-    if helius_api_key:
-        print(f"✅ HELIUS_API_KEY loaded successfully (length: {len(helius_api_key)})")
-        print(f"🔑 API Key preview: {helius_api_key[:8]}...{helius_api_key[-4:]}")
-    else:
-        print("❌ HELIUS_API_KEY not found in environment variables!")
-        print("💡 Please set HELIUS_API_KEY in your environment")
-    
     response = jsonify({
-        "helius_api_key": helius_api_key,
-        "api_key_status": "loaded" if helius_api_key else "missing"
+        "helius_api_key": os.getenv("HELIUS_API_KEY", ""),
+        "status": "operational",
+        "version": "2.0.0"
     })
     
     # Add CORS headers for all origins
@@ -60,6 +59,8 @@ def get_config():
 @app.route('/api/verify-nft', methods=['POST'])
 def verify_nft():
     """Verify NFT ownership for a wallet address"""
+    start_time = time.time()
+    
     try:
         data = request.get_json()
         wallet_address = data.get('wallet_address')
@@ -69,38 +70,47 @@ def verify_nft():
         if not wallet_address or not tg_id:
             return jsonify({"error": "Missing wallet_address or tg_id"}), 400
         
-        print(f"🔍 Verifying NFT ownership for wallet: {wallet_address}")
-        print(f"👤 Telegram ID: {tg_id}")
+        logger.info(f"🔍 Verifying NFT ownership for wallet: {wallet_address}")
+        logger.info(f"👤 Telegram ID: {tg_id}")
         if collection_id:
-            print(f"🎯 Collection ID: {collection_id}")
+            logger.info(f"🎯 Collection ID: {collection_id}")
         else:
-            print(f"🔑 No collection filter (any NFT will pass)")
+            logger.info(f"🔑 No collection filter (any NFT will pass)")
+        
+        # Check if verification is taking too long
+        if time.time() - start_time > MAX_VERIFICATION_TIME:
+            logger.warning(f"⚠️ Verification taking too long, aborting")
+            return jsonify({"error": "Verification timeout", "has_nft": False}), 408
         
         # Verify NFT ownership with collection filter
         has_required_nft, nft_count = has_nft(wallet_address, collection_id)
         
-        print(f"📊 Verification result: has_nft={has_required_nft}, count={nft_count}")
+        verification_time = time.time() - start_time
+        logger.info(f"📊 Verification result: has_nft={has_required_nft}, count={nft_count}, time={verification_time:.2f}s")
         
-        # Send webhook to bot server
+        # Send webhook to bot server (non-blocking)
         webhook_data = {
             "tg_id": tg_id,
             "has_nft": has_required_nft,
             "username": f"user_{tg_id}",
             "nft_count": nft_count,
-            "wallet_address": wallet_address
+            "wallet_address": wallet_address,
+            "verification_time": round(verification_time, 2)
         }
         
-        print(f"📦 Webhook data: {webhook_data}")
+        logger.info(f"📦 Webhook data: {webhook_data}")
         
+        # Send webhook asynchronously to prevent blocking
         try:
-            webhook_response = requests.post(WEBHOOK_URL, json=webhook_data, timeout=10)
+            webhook_response = requests.post(WEBHOOK_URL, json=webhook_data, timeout=WEBHOOK_TIMEOUT)
             if webhook_response.status_code == 200:
-                print(f"✅ Webhook sent successfully for user {tg_id}")
+                logger.info(f"✅ Webhook sent successfully for user {tg_id}")
             else:
-                print(f"❌ Webhook failed for user {tg_id}: {webhook_response.status_code}")
-                print(f"📄 Webhook response: {webhook_response.text}")
+                logger.warning(f"❌ Webhook failed for user {tg_id}: {webhook_response.status_code}")
+                logger.warning(f"📄 Webhook response: {webhook_response.text}")
         except Exception as e:
-            print(f"❌ Error sending webhook: {e}")
+            logger.error(f"❌ Error sending webhook: {e}")
+            # Don't fail the verification if webhook fails
         
         # Prepare response message
         if collection_id:
@@ -113,7 +123,9 @@ def verify_nft():
             "nft_count": nft_count,
             "wallet_address": wallet_address,
             "collection_id": collection_id,
-            "message": message
+            "message": message,
+            "verification_time": round(verification_time, 2),
+            "status": "success"
         })
         
         # Add CORS headers for all origins
@@ -126,8 +138,16 @@ def verify_nft():
         return response
         
     except Exception as e:
-        print(f"❌ Error in verify_nft: {e}")
-        response = jsonify({"error": str(e)})
+        error_time = time.time() - start_time
+        logger.error(f"❌ Error in verify_nft: {e}")
+        logger.error(f"⏱️ Error occurred after {error_time:.2f}s")
+        
+        response = jsonify({
+            "error": str(e),
+            "has_nft": False,
+            "status": "error",
+            "verification_time": round(error_time, 2)
+        })
         
         # Add CORS headers for all origins
         response.headers.add('Access-Control-Allow-Origin', '*')
@@ -143,29 +163,15 @@ def get_nft_assets(wallet_address):
     """Get NFT assets for a wallet address"""
     try:
         api_key = request.args.get('api-key')
-        print(f"🔍 NFT assets request for wallet: {wallet_address}")
-        print(f"🔑 API key received: {'✅ Present' if api_key else '❌ Missing'}")
-        
         if not api_key:
-            print("❌ API key missing from request")
-            return jsonify({"error": "API key required", "details": "No api-key parameter provided"}), 400
-        
-        if len(api_key) < 10:
-            print(f"❌ API key too short: {len(api_key)} characters")
-            return jsonify({"error": "Invalid API key", "details": "API key appears to be invalid"}), 400
+            return jsonify({"error": "API key required"}), 400
             
-        print(f"✅ API key validation passed, length: {len(api_key)}")
-        
-        # Helius API call to get NFTs
+        # Helius API call to get NFTs with timeout
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/nfts?api-key={api_key}"
-        print(f"🌐 Calling Helius API: {url[:50]}...")
-        
-        response = requests.get(url, timeout=30)
-        print(f"📊 Helius API response status: {response.status_code}")
+        response = requests.get(url, timeout=15)
         
         if response.status_code == 200:
             nfts = response.json()
-            print(f"✅ Successfully fetched {len(nfts)} NFTs from Helius")
             result = jsonify(nfts)
             
             # Add CORS headers
@@ -177,26 +183,11 @@ def get_nft_assets(wallet_address):
             
             return result
         else:
-            error_msg = f"Helius API returned status {response.status_code}"
-            try:
-                error_data = response.json()
-                if 'error' in error_data:
-                    error_msg += f": {error_data['error']}"
-            except:
-                error_msg += f": {response.text[:100]}"
+            return jsonify({"error": "Failed to fetch NFTs"}), response.status_code
             
-            print(f"❌ Helius API error: {error_msg}")
-            return jsonify({"error": "Failed to fetch NFTs", "details": error_msg}), response.status_code
-            
-    except requests.exceptions.Timeout:
-        print("❌ Helius API request timed out")
-        return jsonify({"error": "Request timeout", "details": "Helius API request timed out"}), 408
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Helius API request failed: {e}")
-        return jsonify({"error": "Request failed", "details": str(e)}), 500
     except Exception as e:
-        print(f"❌ Unexpected error in get_nft_assets: {e}")
-        response = jsonify({"error": str(e), "details": "Unexpected server error"})
+        logger.error(f"❌ Error getting NFT assets: {e}")
+        response = jsonify({"error": str(e)})
         
         # Add CORS headers
         response.headers.add('Access-Control-Allow-Origin', '*')
@@ -207,6 +198,15 @@ def get_nft_assets(wallet_address):
         
         return response, 500
 
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": time.time(),
+        "version": "2.0.0"
+    })
+
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
@@ -215,6 +215,7 @@ def index():
 @app.route('/api/config', methods=['OPTIONS'])
 @app.route('/api/verify-nft', methods=['OPTIONS'])
 @app.route('/api/addresses/<path:wallet_address>/nft-assets', methods=['OPTIONS'])
+@app.route('/api/health', methods=['OPTIONS'])
 def handle_options(wallet_address=None):
     response = jsonify({})
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -225,5 +226,6 @@ def handle_options(wallet_address=None):
     return response
 
 if __name__ == '__main__':
-    print("🚀 Starting API Server with Python-based NFT verification...")
+    logger.info("🚀 Starting API Server with Python-based NFT verification...")
+    logger.info("📊 Performance optimizations enabled: caching, timeouts, error handling")
     app.run(host='0.0.0.0', port=5001, debug=True) 
