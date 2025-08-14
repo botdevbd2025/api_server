@@ -33,8 +33,19 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://bot-server-kem4.onrender.com/ver
 @app.route('/api/config')
 def get_config():
     """Return configuration data including API keys"""
+    helius_api_key = os.getenv("HELIUS_API_KEY", "")
+    
+    # Log the API key status for debugging
+    if helius_api_key:
+        print(f"✅ HELIUS_API_KEY loaded successfully (length: {len(helius_api_key)})")
+        print(f"🔑 API Key preview: {helius_api_key[:8]}...{helius_api_key[-4:]}")
+    else:
+        print("❌ HELIUS_API_KEY not found in environment variables!")
+        print("💡 Please set HELIUS_API_KEY in your environment")
+    
     response = jsonify({
-        "helius_api_key": os.getenv("HELIUS_API_KEY", "")
+        "helius_api_key": helius_api_key,
+        "api_key_status": "loaded" if helius_api_key else "missing"
     })
     
     # Add CORS headers for all origins
@@ -132,15 +143,29 @@ def get_nft_assets(wallet_address):
     """Get NFT assets for a wallet address"""
     try:
         api_key = request.args.get('api-key')
+        print(f"🔍 NFT assets request for wallet: {wallet_address}")
+        print(f"🔑 API key received: {'✅ Present' if api_key else '❌ Missing'}")
+        
         if not api_key:
-            return jsonify({"error": "API key required"}), 400
+            print("❌ API key missing from request")
+            return jsonify({"error": "API key required", "details": "No api-key parameter provided"}), 400
+        
+        if len(api_key) < 10:
+            print(f"❌ API key too short: {len(api_key)} characters")
+            return jsonify({"error": "Invalid API key", "details": "API key appears to be invalid"}), 400
             
+        print(f"✅ API key validation passed, length: {len(api_key)}")
+        
         # Helius API call to get NFTs
         url = f"https://api.helius.xyz/v0/addresses/{wallet_address}/nfts?api-key={api_key}"
-        response = requests.get(url)
+        print(f"🌐 Calling Helius API: {url[:50]}...")
+        
+        response = requests.get(url, timeout=30)
+        print(f"📊 Helius API response status: {response.status_code}")
         
         if response.status_code == 200:
             nfts = response.json()
+            print(f"✅ Successfully fetched {len(nfts)} NFTs from Helius")
             result = jsonify(nfts)
             
             # Add CORS headers
@@ -152,11 +177,26 @@ def get_nft_assets(wallet_address):
             
             return result
         else:
-            return jsonify({"error": "Failed to fetch NFTs"}), response.status_code
+            error_msg = f"Helius API returned status {response.status_code}"
+            try:
+                error_data = response.json()
+                if 'error' in error_data:
+                    error_msg += f": {error_data['error']}"
+            except:
+                error_msg += f": {response.text[:100]}"
             
+            print(f"❌ Helius API error: {error_msg}")
+            return jsonify({"error": "Failed to fetch NFTs", "details": error_msg}), response.status_code
+            
+    except requests.exceptions.Timeout:
+        print("❌ Helius API request timed out")
+        return jsonify({"error": "Request timeout", "details": "Helius API request timed out"}), 408
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Helius API request failed: {e}")
+        return jsonify({"error": "Request failed", "details": str(e)}), 500
     except Exception as e:
-        print(f"❌ Error getting NFT assets: {e}")
-        response = jsonify({"error": str(e)})
+        print(f"❌ Unexpected error in get_nft_assets: {e}")
+        response = jsonify({"error": str(e), "details": "Unexpected server error"})
         
         # Add CORS headers
         response.headers.add('Access-Control-Allow-Origin', '*')
