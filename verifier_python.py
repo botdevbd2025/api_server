@@ -2,6 +2,8 @@ import requests
 import os
 from typing import Tuple, Optional, List, Dict
 from dotenv import load_dotenv
+import time
+from functools import lru_cache
 
 load_dotenv()
 
@@ -11,8 +13,29 @@ HELIUS_API_URL = "https://api.helius.xyz/v0"  # Keep v0 for balance
 DAS_API_URL = "https://mainnet.helius-rpc.com"  # DAS API endpoint
 LAMPORTS_PER_SOL = 1_000_000_000  # Conversion factor for SOL (1 SOL = 1e9 lamports)
 
-# Cache disabled - allow multiple verifications
-# wallet_cache = {}
+# Performance settings
+REQUEST_TIMEOUT = 15  # 15 seconds timeout for API calls
+CACHE_DURATION = 300  # 5 minutes cache duration
+MAX_ITEMS_TO_PROCESS = 100  # Limit items to process to prevent timeouts
+
+# Simple in-memory cache with expiration
+wallet_cache = {}
+cache_timestamps = {}
+
+def get_cache_key(wallet_address: str, collection_id: str = None) -> str:
+    """Generate cache key for wallet and collection combination"""
+    return f"{wallet_address}_{collection_id}" if collection_id else wallet_address
+
+def is_cache_valid(cache_key: str) -> bool:
+    """Check if cache is still valid"""
+    if cache_key not in cache_timestamps:
+        return False
+    return time.time() - cache_timestamps[cache_key] < CACHE_DURATION
+
+def set_cache(cache_key: str, data: any):
+    """Set cache data with timestamp"""
+    wallet_cache[cache_key] = data
+    cache_timestamps[cache_key] = time.time()
 
 def get_wallet_balance(wallet_address: str) -> Optional[float]:
     """
@@ -22,13 +45,24 @@ def get_wallet_balance(wallet_address: str) -> Optional[float]:
     Returns:
         SOL balance as a float, or None if the request fails.
     """
-    # No cache - always fetch fresh data
+    # Check cache first
+    cache_key = get_cache_key(wallet_address)
+    if is_cache_valid(cache_key) and 'balance' in wallet_cache.get(cache_key, {}):
+        print(f"💰 Using cached SOL balance for {wallet_address}")
+        return wallet_cache[cache_key]['balance']
+    
     url = f"{HELIUS_API_URL}/addresses/{wallet_address}/balances?api-key={HELIUS_API_KEY}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         data = response.json()
         balance = data.get("nativeBalance", 0) / LAMPORTS_PER_SOL
+        
+        # Cache the result
+        if cache_key not in wallet_cache:
+            wallet_cache[cache_key] = {}
+        wallet_cache[cache_key]['balance'] = balance
+        set_cache(cache_key, wallet_cache[cache_key])
         
         return balance
     except requests.RequestException as e:
@@ -44,7 +78,7 @@ def get_wallet_nfts_alternative(wallet_address: str) -> Optional[List[Dict]]:
         
         print(f"🎨 Fetching NFTs using alternative method for: {wallet_address}")
         
-        response = requests.get(url)
+        response = requests.get(url, timeout=REQUEST_TIMEOUT)
         print(f"📊 Alternative API Response Status: {response.status_code}")
         
         if response.status_code == 200:
@@ -68,9 +102,13 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
     Returns:
         List of NFTs, or None if the request fails.
     """
-    # No cache - always fetch fresh data
+    # Check cache first
+    cache_key = get_cache_key(wallet_address, collection_id)
+    if is_cache_valid(cache_key) and 'nfts' in wallet_cache.get(cache_key, {}):
+        print(f"🎨 Using cached NFTs for {wallet_address}")
+        return wallet_cache[cache_key]['nfts']
     
-    # Using Helius DAS API for NFTs - simpler approach
+    # Using Helius DAS API for NFTs - optimized approach
     url = f"{DAS_API_URL}/?api-key={HELIUS_API_KEY}"
     payload = {
         "jsonrpc": "2.0",
@@ -86,7 +124,7 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
         print(f"🎯 Filtering by collection: {collection_id}")
     
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
         print(f"📊 Response Status: {response.status_code}")
         
         response.raise_for_status()
@@ -101,6 +139,11 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
             all_items = data["result"]["items"]
             print(f"📦 Total items received: {len(all_items)}")
             
+            # Limit items to process to prevent timeouts
+            if len(all_items) > MAX_ITEMS_TO_PROCESS:
+                print(f"⚠️ Limiting processing to first {MAX_ITEMS_TO_PROCESS} items to prevent timeout")
+                all_items = all_items[:MAX_ITEMS_TO_PROCESS]
+            
             # Log first few items for debugging
             for i, item in enumerate(all_items[:3]):
                 token_standard = item.get("content", {}).get("metadata", {}).get("token_standard", "Unknown")
@@ -109,7 +152,7 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
                 collection = grouping[0].get("group_value", "Unknown") if grouping and len(grouping) > 0 else "Unknown"
                 print(f"  Item {i+1}: token_standard = {token_standard}, interface = {interface}, collection = {collection}")
             
-            # Improved NFT filtering - check multiple criteria
+            # Optimized NFT filtering - check multiple criteria efficiently
             nfts = []
             for item in all_items:
                 # Check if it's an NFT based on multiple criteria
@@ -135,10 +178,11 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
                 if files or name or symbol:
                     is_nft = True
                 
-                # Criterion 4: Check for NFT keywords in description
-                description = metadata.get("description", "")
-                if any(keyword in description.lower() for keyword in ["nft", "non-fungible", "token"]):
-                    is_nft = True
+                # Criterion 4: Check for NFT keywords in description (only if not already identified)
+                if not is_nft:
+                    description = metadata.get("description", "")
+                    if any(keyword in description.lower() for keyword in ["nft", "non-fungible", "token"]):
+                        is_nft = True
                 
                 if is_nft:
                     nfts.append(item)
@@ -155,7 +199,10 @@ def get_wallet_nfts_by_collection(wallet_address: str, collection_id: str = None
                 nfts = filtered_nfts
                 print(f"🎨 NFTs in collection {collection_id}: {len(nfts)}")
             else:
-                print(f"🎨 Non-fungible tokens found: {len(nfts)}")
+             print(f"🎨 Non-fungible tokens found: {len(nfts)}")
+            
+            # Cache the result
+            set_cache(cache_key, {'nfts': nfts})
             
             return nfts
         else:
@@ -195,13 +242,13 @@ def has_nft_python(wallet_address: str, collection_id: str = None) -> Tuple[bool
             if collection_id:
                 print(f"✅ Wallet has {nft_count} NFTs in collection {collection_id} - verification successful")
             else:
-                print(f"✅ Wallet has {nft_count} NFTs - verification successful")
+             print(f"✅ Wallet has {nft_count} NFTs - verification successful")
             return True, nft_count
         else:
             if collection_id:
                 print(f"❌ Wallet has no NFTs in collection {collection_id} - verification failed")
             else:
-                print(f"❌ Wallet has no NFTs - verification failed")
+             print(f"❌ Wallet has no NFTs - verification failed")
             return False, 0
             
     except Exception as e:
